@@ -104,7 +104,7 @@ class Simulation:
     def run_one_iteration(self, 
                           progess_bar) -> None:
         for date in self.dates:
-            # On each day, at first, we need to calculate dynamic time spent for each travelers
+            # On each day, at first, we need to calculate dynamic time spent at facility type
             for mega_agent_name, mega_agent in self.all_mega_agents.items():
                 if mega_agent.if_initialized == True and date == self.dates[0]:
                     continue 

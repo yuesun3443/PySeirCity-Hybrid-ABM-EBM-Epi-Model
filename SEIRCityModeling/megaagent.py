@@ -55,7 +55,8 @@ class MegaAgent:
         self.Risk = 0
         self.if_initialized = False
         self.contact_trace_roster = defaultdict(set)
-    
+        # used to calculate R_eff
+        self.new_infectious_count = 0
 
     def reset_MegaAgent(self) -> None:
         self.MegaAgentState = State()
@@ -64,6 +65,12 @@ class MegaAgent:
         self.Risk = 0
         self.if_initialized = False  
         self.contact_trace_roster = defaultdict(set)
+        self.new_infectious_count = 0
+
+    def count_infectious(self):
+        """Counts infectious individuals (Ia and Is)."""
+        infectious_count = len(self.MegaAgentState.Ia) + len(self.MegaAgentState.Is)
+        return infectious_count
 
 
     def get_dynamic_time_spent(self, date:datetime):  
@@ -85,55 +92,6 @@ class MegaAgent:
             for traveler in self.SimulationPeriodBasicInfo.urbano_agents_travelers_mapping[urbano_agent]:
                 travelers_time_spent_at_the_facilityType_dict[traveler] = time_spent_dict
         return travelers_time_spent_at_the_facilityType_dict
-
-
-    # orginal version, not being used
-    def calculate_MegaAgent_risk0(self, 
-                                date:datetime,
-                                current_time_step: int,
-                                all_facilities_objects: dict):
-        risk = 0
-        s_traveler_risk_dict = dict()
-        
-        # for facility_name, facility in all_facilities_objects.items():
-        for facility in all_facilities_objects.values():
-            facility_hazard = facility.FacilityHazard
-            # Find time spent
-            time_spent = self.SimulationPeriodBasicInfo.AllDatesFacilityTimeUse[date][facility.FacilityName]
-            # Find the faicitliy vist probability
-            visit_prob = self.FacilityStationaryDistribution[current_time_step][0][facility.FaciltyIndex]
-            risk += facility_hazard * time_spent * visit_prob        
-
-        # get visited facilities by the susceptible travelers of the maga_agent at the current time step
-        s_traveler_visit_facilities = dict()
-        for s_traveler in self.MegaAgentState.S_travelers:
-            urbano_agent = self.SimulationPeriodBasicInfo.traveler_urbano_agent_mapping[s_traveler]
-            visit_facilities = self.SimulationPeriodBasicInfo.urbano_agent_date_time_step_facility_dic[urbano_agent][date]
-            for facility_name, visit_time_step in visit_facilities:
-                if visit_time_step != current_time_step:
-                    continue
-
-                facility_object = all_facilities_objects[facility_name]
-                if s_traveler in facility_object.Date_TimeStep_Susceptibles[date][current_time_step]:
-                    if s_traveler not in s_traveler_visit_facilities:
-                        s_traveler_visit_facilities[s_traveler] = set()
-                    s_traveler_visit_facilities[s_traveler].add(facility_object)
-
-        for s_traveler, visit_facilities in s_traveler_visit_facilities.items():
-            s_traveler_risk = 0
-
-            for v_f in visit_facilities:
-                facility_hazard = v_f.FacilityHazard
-                facility_type = v_f.FacilityType
-                # Find the faicitliy vist probability
-                visit_prob = self.FacilityStationaryDistribution[current_time_step][0][v_f.FaciltyIndex]
-                
-                # get time spent at the facility type at the target time step
-                time_spent = self.dynamic_time_spent_dic[s_traveler][facility_type][current_time_step]
-                s_traveler_risk += facility_hazard * time_spent * visit_prob
-
-            s_traveler_risk_dict[s_traveler] = s_traveler_risk
-        return risk, s_traveler_risk_dict
 
 
     def calculate_MegaAgent_risk(self, 
@@ -241,9 +199,6 @@ class MegaAgent:
             to_infect.update(initial_infected)
         else:
             # used to decide how many travelers are exposed and removed from S.
-            # self.Risk, s_traveler_risk_dict = self.calculate_MegaAgent_risk(date, 
-            #                                                                 current_time_step, 
-            #                                                                 all_facilities_objects)
             self.Risk = self.calculate_MegaAgent_risk(date, current_time_step, all_facilities_objects)
             s_traveler_risk_dict = self.calculate_susceptible_travelers_risks(date, current_time_step, all_facilities_objects)
         
@@ -258,6 +213,8 @@ class MegaAgent:
             else:
                 # to_infect = set(np.random.choice(list(self.MegaAgentState.S_travelers), size=delta_S, replace=False))
                 to_infect = self.selectSusceptibleBasedOnTravelerRisk(delta_S, s_traveler_risk_dict)
+
+        self.new_infectious_count += len(to_infect)
 
         random_nums = set(np.random.uniform(0, 1, size=len(to_infect)))
         for traveler, if_infectious in zip(to_infect, random_nums):
@@ -498,3 +455,12 @@ class MegaAgent:
         stat.MegaAgents_In[self.MegaAgentName][date].append(len(self.MegaAgentState.Ia_travelers_list) + len(self.MegaAgentState.Is_travelers_list))
         stat.MegaAgents_Rn[self.MegaAgentName][date].append(len(self.MegaAgentState.R_travelers))
         stat.MegaAgents_Qn[self.MegaAgentName][date].append(len(self.MegaAgentState.Q_travelers) + len(self.MegaAgentState.Qe_travelers) + len(self.MegaAgentState.Qs_travelers) + len(self.MegaAgentState.Qa_travelers))
+        
+        # to record data for later calculation of effective reproduction number
+        R_eff_dict = dict()
+        R_eff_dict["new infectious count"] = self.new_infectious_count
+        R_eff_dict["infectious count"] = self.count_infectious()
+        stat.R_effs[self.MegaAgentName][date].append(R_eff_dict)
+                
+        # reset the value at the end of each day
+        self.new_infectious_count = 0
