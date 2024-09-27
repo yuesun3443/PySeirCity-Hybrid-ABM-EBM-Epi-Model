@@ -63,12 +63,14 @@ class Simulation:
                     if mega_agent.MegaAgentPopulation == 0:
                         continue
                     
-                    initial_exposed_travelers_in_mega_agent = mega_agent.MegaAgentState.S_travelers & initial_exposure
+                    initial_exposed_travelers_in_mega_agent = list(mega_agent.MegaAgentState.S_travelers & initial_exposure)
                     if len(initial_exposed_travelers_in_mega_agent)==0:
                         continue
-                    self.initial_exposed(mega_agent, initial_exposed_travelers_in_mega_agent)
+                    # self.initial_exposed(mega_agent, initial_exposed_travelers_in_mega_agent)
+                    self.initial_infect(mega_agent, initial_exposed_travelers_in_mega_agent)
                    
-                self.run_one_iteration(pbar)
+                #self.run_one_iteration(pbar)
+                self.run_one_iteration_ini_infect(pbar)
                 #####################################################parallel computing
                 # Simulation.run_one_iteration_parallel(pbar, 
                 #                                         self.dates,
@@ -82,7 +84,8 @@ class Simulation:
                 # self.reset_facilities_and_MegaAgents()
                 #####################################################
         
-        self.stat.plot_aggregated_progression(self.parameters.Iteration, if_plot_seperate=if_plot_seperate)
+        self.stat.plot_aggregated_progression(self.parameters,
+                                              if_plot_seperate=if_plot_seperate)
         self.stat.plot_MegaAgents_progressions()
 
 
@@ -150,9 +153,82 @@ class Simulation:
             
             # Update the progress bar after each date is processed
             progess_bar.update(1)
-                    
         self.reset_facilities_and_MegaAgents()        
+
+
+    def initial_infect(self, 
+                       starter_ma: MegaAgent,
+                       initial_infected_travelers: List[int]) -> None:
+        first_date = self.dates[0]
+        starter_ma.dynamic_time_spent_dic = starter_ma.get_dynamic_time_spent(first_date)
+        starter_ma.initialize_MegaAgent(first_date, self.parameters, initial_infected_travelers)
+        starter_ma.record_daily_stat(first_date, self.stat)   
+        self.parameters.conduct_testing.test(starter_ma, 
+                                            first_date, 
+                                            self.all_facilities_objects, 
+                                            self.parameters.contact_trace_date_length, 
+                                            self.parameters.quarantine_length,
+                                            self.parameters.quarantine_prob)
+
+        self.parameters.contact_tracing.trace(starter_ma, 
+                                            first_date, 
+                                            starter_ma.contact_trace_roster,
+                                            self.all_facilities_objects)              
+        starter_ma.if_initialized = True
+    
+    def run_one_iteration_ini_infect(self, 
+                                     progess_bar) -> None:
+        for date in self.dates:
+            # On each day, at first, we need to calculate dynamic time spent at facility type
+            for mega_agent_name, mega_agent in self.all_mega_agents.items():
+                if mega_agent.if_initialized == True and date == self.dates[0]:
+                    continue 
+                mega_agent.dynamic_time_spent_dic = mega_agent.get_dynamic_time_spent(date)
+
+            for time_step in self.TimeSteps:
+                for f_name, f in self.all_facilities_objects.items():
+                    f.FacilityHazard = f.computeFacilityHazard(date,
+                                                               time_step,
+                                                               self.all_mega_agents, 
+                                                               self.parameters, 
+                                                               self.sim_basic_info)
+
+                for mega_agent_name, mega_agent in self.all_mega_agents.items():
+                    if mega_agent.MegaAgentPopulation == 0:
+                        continue
+                        
+                    if mega_agent.if_initialized == True and date == self.dates[0] and time_step == 1:
+                        continue
+                    else:
+                        mega_agent.labelTravelsAsExposed(date,
+                                                         time_step,
+                                                         self.all_facilities_objects)
+
+            # daily update        
+            for mega_agent_name, mega_agent in self.all_mega_agents.items():
+                if mega_agent.MegaAgentPopulation == 0:
+                    continue
+                if mega_agent.if_initialized == True and date == self.dates[0]:
+                    continue
+
+                mega_agent.MegaAgent_daily_update(date, self.parameters) 
+                mega_agent.record_daily_stat(date, self.stat)
+                
+                self.parameters.conduct_testing.test(mega_agent, 
+                                                    date, 
+                                                    self.all_facilities_objects, 
+                                                    self.parameters.contact_trace_date_length, 
+                                                    self.parameters.quarantine_length,
+                                                    self.parameters.quarantine_prob)
+
+                self.parameters.contact_tracing.trace(mega_agent, 
+                                                      date, 
+                                                      mega_agent.contact_trace_roster,
+                                                      self.all_facilities_objects)
             
+            # Update the progress bar after each date is processed
+            progess_bar.update(1)
+        self.reset_facilities_and_MegaAgents()      
 
     def reset_facilities_and_MegaAgents(self) -> None:
         for facility_name, facility in self.all_facilities_objects.items():

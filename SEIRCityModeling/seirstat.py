@@ -65,24 +65,81 @@ class Statistics:
             aggregated[d] = day_sum_res_list
         return aggregated
 
-    def get_aggregated_R_effs(self, R_eff: dict, iteration: int):
+    def get_aggregated_R_effs(self, 
+                              parameters):
+        """
+        Effective reproduction number is to divide the number of 
+        new infections on day t by the number of actively infectious 
+        people on day t, multiplied by the average duration of infectiousness.
+        """
         aggregated = {}
+        total_new_Ia_count_dict = {}
+        total_new_Is_count_dict = {}
         for d in self.Tn:
+            total_new_Ia_count_dict[d] = list()
+            total_new_Is_count_dict[d] = []
             day_R_effs = []
-            for i in range(iteration):
-                total_new_infectious_count = 0
-                total_infectious_count = 0
+            for i in range(parameters.Iteration):
+                total_new_Ia_count = 0
+                total_new_Is_count = 0
+                total_Ia_count = 0
+                total_Is_count = 0
                 for mega_agent_name, mega_agent in self.all_mega_agents.items():
                     if mega_agent.MegaAgentPopulation == 0:
                         continue  # Skip this iteration if population is zero
 
-                    total_new_infectious_count += R_eff[mega_agent_name][d][i]["new infectious count"]
-                    total_infectious_count += R_eff[mega_agent_name][d][i]["infectious count"]
-                if total_infectious_count == 0:
+                    total_new_Ia_count += self.R_effs[mega_agent_name][d][i]["new infectious count"]["Ia count"]
+                    total_new_Is_count += self.R_effs[mega_agent_name][d][i]["new infectious count"]["Is count"]
+                    total_Ia_count += self.R_effs[mega_agent_name][d][i]["infectious count"]["Ia count"]
+                    total_Is_count += self.R_effs[mega_agent_name][d][i]["infectious count"]["Is count"]
+                total_new_Ia_count_dict[d].append(total_new_Ia_count)
+                total_new_Is_count_dict[d].append(total_new_Is_count)
+
+                if total_Ia_count == 0 and total_Is_count == 0:
                     day_R_eff = 0
                     day_R_effs.append(day_R_eff)
                 else:
-                    day_R_eff = total_new_infectious_count / total_infectious_count
+                    ################################################################################
+                    prob_asymI_to_R = parameters.infection_duration.rate_from_asymI_to_R
+                    Ia_denominator = 1e-9
+                    for day, total_new_Ia_count_list in total_new_Ia_count_dict.items():
+                        day_diff = (d-day).days
+                        if day_diff == 0:
+                            day_diff = 1
+                        geometric_prob = prob_asymI_to_R * ((1.0-prob_asymI_to_R)**(day_diff-1.0))
+                        new_Ia_on_day = total_new_Ia_count_list[i]
+                        Ia_denominator += geometric_prob * new_Ia_on_day
+                    R_eff_Ia = total_new_Ia_count/Ia_denominator                
+                    
+                    prob_symI_to_R = parameters.infection_duration.rate_from_symI_to_R
+                    Is_denominator = 1e-9
+                    for day, total_new_Is_count_list in total_new_Is_count_dict.items():
+                        day_diff = (d-day).days
+                        if day_diff == 0:
+                            day_diff = 1
+                        geometric_prob = prob_symI_to_R * ((1.0-prob_symI_to_R)**(day_diff-1.0))
+                        new_Is_on_day = total_new_Is_count_list[i]
+                        Is_denominator += geometric_prob * new_Is_on_day
+                    R_eff_Is = total_new_Is_count/Is_denominator
+
+                    day_R_eff = parameters.infection_duration.asym_fraction * R_eff_Ia +\
+                                (1-parameters.infection_duration.asym_fraction) * R_eff_Is
+
+                    ################################################################################
+                    # days_Ia_infectious = 1.0/parameters.infection_duration.rate_from_asymI_to_R
+                    # Ia_denominator = total_Ia_count * days_Ia_infectious
+                    # R_eff_Ia = total_new_Ia_count/Ia_denominator  
+
+                    # days_Is_infectious = 1.0/parameters.infection_duration.rate_from_symI_to_R
+                    # Is_denominator = total_Is_count * days_Is_infectious
+                    # R_eff_Is = total_new_Ia_count/Is_denominator    
+
+                    # day_R_eff = parameters.asym_fraction * R_eff_Ia +\
+                    #             (1-parameters.asym_fraction) * R_eff_Is
+                    ################################################################################
+
+                    # day_R_eff = (total_new_Ia_count+total_new_Is_count)/(total_Ia_count+total_Is_count)
+
                     day_R_effs.append(day_R_eff)
             aggregated[d] = day_R_effs
         return aggregated
@@ -97,17 +154,17 @@ class Statistics:
         ax.fill_between(date_list, lower_bound_es, upper_bound_es, color='b',alpha=0.4)
 
     def plot_aggregated_progression(self, 
-                                    iteration: int,
+                                    parameters,
                                     if_plot_seperate=False):
         locator = mdates.AutoDateLocator(interval_multiples = False)
         formatter = mdates.AutoDateFormatter(locator)
 
-        self.S_agg = self.get_aggregated_progression(self.MegaAgents_Sn, iteration)
-        self.E_agg = self.get_aggregated_progression(self.MegaAgents_En, iteration)
-        self.I_agg = self.get_aggregated_progression(self.MegaAgents_In, iteration)
-        self.R_agg = self.get_aggregated_progression(self.MegaAgents_Rn, iteration)
-        self.Q_agg = self.get_aggregated_progression(self.MegaAgents_Qn, iteration)
-        self.Reff_agg = self.get_aggregated_R_effs(self.R_effs, iteration)
+        self.S_agg = self.get_aggregated_progression(self.MegaAgents_Sn, parameters.Iteration)
+        self.E_agg = self.get_aggregated_progression(self.MegaAgents_En, parameters.Iteration)
+        self.I_agg = self.get_aggregated_progression(self.MegaAgents_In, parameters.Iteration)
+        self.R_agg = self.get_aggregated_progression(self.MegaAgents_Rn, parameters.Iteration)
+        self.Q_agg = self.get_aggregated_progression(self.MegaAgents_Qn, parameters.Iteration)
+        self.Reff_agg = self.get_aggregated_R_effs(parameters)
 
         print('Average final exposure count is', np.mean(self.R_agg[max(self.R_agg)]))
         if (len(self.R_agg[max(self.R_agg)]) > 1):
@@ -137,29 +194,20 @@ class Statistics:
             for p in ps:
                 ax4.plot(self.Tn, Rp[p])
 
-            if iteration >= 30:
+            if parameters.Iteration >= 30:
                 self.plot_confidence_interval(self.S_agg, self.Tn, ax1)
                 self.plot_confidence_interval(self.E_agg, self.Tn, ax2)
                 self.plot_confidence_interval(self.I_agg, self.Tn, ax3)
                 self.plot_confidence_interval(self.R_agg, self.Tn, ax4)
 
-            ax1.legend(list(map(lambda x : str(x) + '%', ps)))
-            ax2.legend(list(map(lambda x : str(x) + '%', ps)))
-            ax3.legend(list(map(lambda x : str(x) + '%', ps)))
-            ax4.legend(list(map(lambda x : str(x) + '%', ps)))
             ax1.set_title('Aggregated Progression: Percentiles of Susceptible People')
             ax2.set_title('Aggregated Progression: Percentiles of Exposed People')
             ax3.set_title('Aggregated Progression: Percentiles of Infected People')
             ax4.set_title('Aggregated Progression: Percentiles of Recovered People')
-            ax1.set_ylabel('Number of People')
-            ax1.set_xlabel('Day of Year')
-            ax2.set_ylabel('Number of People')
-            ax2.set_xlabel('Day of Year')
-            ax3.set_ylabel('Number of People')
-            ax3.set_xlabel('Day of Year')
-            ax4.set_ylabel('Number of People')
-            ax4.set_xlabel('Day of Year')
             for ax in (ax1, ax2, ax3, ax4):
+                ax.legend(list(map(lambda x : str(x) + '%', ps)))
+                ax.set_ylabel('Number of People')
+                ax.set_xlabel('Day of Year')
                 ax.grid(True)
                 ax.tick_params(axis='x', rotation=45)  # Rotate x-axis labels 45 degrees
                 ax.xaxis.set_major_locator(locator)
@@ -202,13 +250,13 @@ class Statistics:
             ax3.grid(True)
             ax3.tick_params(axis='x', rotation=45)
 
-            if iteration >= 30:
+            if parameters.Iteration >= 30:
                 self.plot_confidence_interval(self.E_agg, self.Tn, ax2)
                 self.plot_confidence_interval(self.I_agg, self.Tn, ax3)
             
             # plot effective reproduction value
             plt.figure(figsize=(8,4.5))
-            for i in range(iteration):
+            for i in range(parameters.Iteration):
                 plt.plot(self.Tn, [self.Reff_agg[d][i] for d in self.Tn])
             plt.title('Effective Reproduction Number')
             plt.xlabel('Day of Year')
@@ -261,20 +309,13 @@ class Statistics:
         ax2.set_title('Epidemic Progression of Individual MegaAgents: E')
         ax3.set_title('Epidemic Progression of Individual MegaAgents: I')
         ax4.set_title('Epidemic Progression of Individual MegaAgents: R')
-        ax1.set_ylabel('Number of People')
-        ax1.set_xlabel('Day of Year')
-        ax2.set_ylabel('Number of People')
-        ax2.set_xlabel('Day of Year')
-        ax3.set_ylabel('Number of People')
-        ax3.set_xlabel('Day of Year')
-        ax4.set_ylabel('Number of People')
-        ax4.set_xlabel('Day of Year')
-        ax1.xaxis.set_major_locator(locator)
-        ax1.xaxis.set_major_formatter(formatter)
-        ax2.xaxis.set_major_locator(locator)
-        ax2.xaxis.set_major_formatter(formatter)
-        ax3.xaxis.set_major_locator(locator)
-        ax3.xaxis.set_major_formatter(formatter)
-        ax4.xaxis.set_major_locator(locator)
-        ax4.xaxis.set_major_formatter(formatter)
+
+        for ax in (ax1, ax2, ax3, ax4):
+            ax.set_ylabel('Number of People')
+            ax.set_xlabel('Day of Year')
+            ax.grid(True)
+            ax.tick_params(axis='x', rotation=45)  # Rotate x-axis labels 45 degrees
+            ax.xaxis.set_major_locator(locator)
+            ax.xaxis.set_major_formatter(formatter)
+
 

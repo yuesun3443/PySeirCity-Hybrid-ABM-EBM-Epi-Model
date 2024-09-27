@@ -56,7 +56,8 @@ class MegaAgent:
         self.if_initialized = False
         self.contact_trace_roster = defaultdict(set)
         # used to calculate R_eff
-        self.new_infectious_count = 0
+        self.new_Ia_count = 0
+        self.new_Is_count = 0
 
     def reset_MegaAgent(self) -> None:
         self.MegaAgentState = State()
@@ -65,12 +66,8 @@ class MegaAgent:
         self.Risk = 0
         self.if_initialized = False  
         self.contact_trace_roster = defaultdict(set)
-        self.new_infectious_count = 0
-
-    def count_infectious(self):
-        """Counts infectious individuals (Ia and Is)."""
-        infectious_count = len(self.MegaAgentState.Ia) + len(self.MegaAgentState.Is)
-        return infectious_count
+        self.new_Ia_count = 0
+        self.new_Is_count = 0
 
 
     def get_dynamic_time_spent(self, date:datetime):  
@@ -167,7 +164,7 @@ class MegaAgent:
             min_risk_weight = min(list_without_zeros)
             # if the risk_weight is 0, add a little value to it to prevent 0 value
             # it will be easier when using np.random.choice
-            s_risk_weights = [min_risk_weight/10000 if risk == 0 else risk for risk in s_risk_weights]  
+            s_risk_weights = [min_risk_weight/1000 if risk == 0 else risk for risk in s_risk_weights]  
             # unitized weights
             risk_sum = sum(s_risk_weights)
             s_risk_weights = [risk/risk_sum for risk in s_risk_weights]
@@ -214,8 +211,6 @@ class MegaAgent:
                 # to_infect = set(np.random.choice(list(self.MegaAgentState.S_travelers), size=delta_S, replace=False))
                 to_infect = self.selectSusceptibleBasedOnTravelerRisk(delta_S, s_traveler_risk_dict)
 
-        self.new_infectious_count += len(to_infect)
-
         random_nums = set(np.random.uniform(0, 1, size=len(to_infect)))
         for traveler, if_infectious in zip(to_infect, random_nums):
             # # if a traveler is not vacinated or is vacinated but useless,
@@ -261,10 +256,12 @@ class MegaAgent:
         travelers_to_sym_I = list(np.random.choice(travelers_from_E_to_I, size=num_of_travelers_to_sym_I, replace=False))
         self.MegaAgentState.Is_travelers_list.extend(travelers_to_sym_I)
         self.MegaAgentState.Is = set(self.MegaAgentState.Is_travelers_list)
+        self.new_Is_count = len(travelers_to_sym_I)
 
         travelers_to_asym_I = list(set(travelers_from_E_to_I) - set(travelers_to_sym_I))
         self.MegaAgentState.Ia_travelers_list.extend(travelers_to_asym_I)
         self.MegaAgentState.Ia = set(self.MegaAgentState.Ia_travelers_list)
+        self.new_Ia_count = len(travelers_to_asym_I)
         
 
     def transferTravelersFromItoR(self, 
@@ -446,6 +443,29 @@ class MegaAgent:
         self.bring_quarantined_S_to_S(date)
 
 
+    def initialize_MegaAgent(self,
+                             date: datetime, 
+                             parameters, 
+                             initial_infected:List[int]=None) -> None:
+        num_of_initial_infected = len(initial_infected)
+        num_of_travelers_to_sym_I = round(num_of_initial_infected * (1 - parameters.infection_duration.asym_fraction))
+        travelers_to_sym_I = list(np.random.choice(initial_infected, size=num_of_travelers_to_sym_I, replace=False))
+        self.MegaAgentState.Is_travelers_list.extend(travelers_to_sym_I)
+        self.MegaAgentState.Is = set(self.MegaAgentState.Is_travelers_list)
+        self.new_Is_count = len(travelers_to_sym_I)
+
+        travelers_to_asym_I = list(set(initial_infected) - set(travelers_to_sym_I))
+        self.MegaAgentState.Ia_travelers_list.extend(travelers_to_asym_I)
+        self.MegaAgentState.Ia = set(self.MegaAgentState.Ia_travelers_list)
+        self.new_Ia_count = len(travelers_to_asym_I)
+
+        self.transferTravelersFromItoR(date, parameters)
+        self.pool_recover(self.MegaAgentState.Qe_travelers, date)
+        self.pool_recover(self.MegaAgentState.Qa_travelers, date)
+        self.pool_recover(self.MegaAgentState.Qs_travelers, date)
+        self.bring_quarantined_S_to_S(date)
+
+
     def record_daily_stat(self,
                           date: datetime,
                           stat) -> None:
@@ -458,9 +478,15 @@ class MegaAgent:
         
         # to record data for later calculation of effective reproduction number
         R_eff_dict = dict()
-        R_eff_dict["new infectious count"] = self.new_infectious_count
-        R_eff_dict["infectious count"] = self.count_infectious()
+        R_eff_dict["new infectious count"] = dict()
+        R_eff_dict["new infectious count"]["Ia count"] = self.new_Ia_count
+        R_eff_dict["new infectious count"]["Is count"] = self.new_Is_count
+
+        R_eff_dict["infectious count"] = {}
+        R_eff_dict["infectious count"]["Ia count"] = len(self.MegaAgentState.Ia)
+        R_eff_dict["infectious count"]["Is count"] = len(self.MegaAgentState.Is)
         stat.R_effs[self.MegaAgentName][date].append(R_eff_dict)
                 
         # reset the value at the end of each day
-        self.new_infectious_count = 0
+        self.new_Ia_count = 0
+        self.new_Is_count = 0
