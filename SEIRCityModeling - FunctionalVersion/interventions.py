@@ -1,11 +1,13 @@
 from datetime import datetime, timedelta
 import numpy as np
+from megaagent import MegaAgent
 
 class DefaultTesting:
     def __init__(self, 
                 probs_to_be_tested: float,
                 test_accuracy_rate: float, 
-                prob_of_self_report: float):
+                quarantine_prob: float,
+                quarantine_length: int):
         pass
     def __str__(self):
         return 'DefaultTesting(no testing)'
@@ -13,55 +15,65 @@ class DefaultTesting:
              mega_agent,
              date: datetime, 
              all_facilities_objects:dict, 
-             contact_tracing_date_length: int,
-             quarantine_length: int,
-             quarantine_prob: float):
+             SimulationPeriodBasicInfo):
         pass
 
 class GeneralTesting:
     """
-    Put certain amount of travelers of a mega_agent into contact tracing roster. For each traveler,
-    if he is willing to be tested, and if the test result is accurate, and if he is exposed
-    or infected, and if he is willing to self report the result, then he will be contact
-    traced and quarantined. Every "if" is controlled by a probability parameter.
+    For each traveler, if he is willing to be tested, and if the test result is positive, then he will choose if to be
+    quarantined. Every "if" is controlled by a probability parameter.
     """
     def __init__(self, 
                 probs_to_be_tested: dict,
                 test_accuracy_rate: float, 
-                prob_of_self_report: float):
+                quarantine_prob: float,
+                quarantine_length: int):
         self.probs_to_be_tested = probs_to_be_tested
         self.test_accuracy_rate = test_accuracy_rate
-        self.prob_of_self_report = prob_of_self_report
+        self.quarantine_prob = quarantine_prob
+        self.quarantine_length = quarantine_length
     
     def __str__(self):
         note = "Tesing: Probaility that a traveler chooses to test: " + str(self.probs_to_be_tested) + \
                 " Test Accuracy: " + str(self.test_accuracy_rate) +\
-                " Probability that the traveler self report the result if test positive: " + str(self.prob_of_self_report)  
+                " Probability that the traveler self quarantined if test positive: " + str(self.quarantine_prob)  
         return note
 
     def test(self, 
              mega_agent,
              date: datetime, 
              all_facilities_objects:dict, 
-             contact_tracing_date_length: int,
-             quarantine_length: int, 
-             quarantine_prob: float) -> None:
-        """
-        Put certain amount of travelers of a mega_agent into contact tracing roster. For each traveler,
-        if he is willing to be tested, and if the test result is positive (no matter whether accurate or not), 
-        and if he is willing to self report the result, then he will be contact
-        traced and quarantined. Every "if" is controlled by a probability parameter.
-        """
-        # get the contact tracing roster
-        contact_tracing_roster = mega_agent.conduct_testing(date, 
-                                                            self.probs_to_be_tested, 
-                                                            self.test_accuracy_rate, 
-                                                            self.prob_of_self_report)
+             SimulationPeriodBasicInfo) -> None:
+        # get the roster of self quarantined
+        self_quarantined_dict = MegaAgent.conduct_testing(date, 
+                                                        self.probs_to_be_tested, 
+                                                        self.test_accuracy_rate, 
+                                                        self.quarantine_prob,
+                                                        mega_agent.MegaAgentState.S_set,
+                                                        mega_agent.MegaAgentState.E_dict,
+                                                        mega_agent.MegaAgentState.Is_dict,
+                                                        mega_agent.MegaAgentState.Ia_dict,
+                                                        mega_agent.MegaAgentState.R_dict)
+        quaranting_start_date = date
+        # quaranting travelers in the list
+        for date, travelers_set in self_quarantined_dict.items():
+            for traveler in travelers_set:
+                MegaAgent.initiate_quarantine(traveler, 
+                                            all_facilities_objects, 
+                                            SimulationPeriodBasicInfo,
+                                            quaranting_start_date, 
+                                            self.quarantine_length,
+                                            mega_agent.MegaAgentState.S_set,
+                                            mega_agent.MegaAgentState.E_dict,
+                                            mega_agent.MegaAgentState.Is_dict,
+                                            mega_agent.MegaAgentState.Ia_dict,
+                                            mega_agent.MegaAgentState.Is_set,
+                                            mega_agent.MegaAgentState.Ia_set,
+                                            mega_agent.MegaAgentState.Q_dict,
+                                            mega_agent.MegaAgentState.Qe_dict,
+                                            mega_agent.MegaAgentState.Qa_dict,
+                                            mega_agent.MegaAgentState.Qs_dict)
 
-        ct = ContactTracing(contact_tracing_date_length, 
-                            quarantine_length, 
-                            quarantine_prob)
-        ct.trace(mega_agent, date, contact_tracing_roster, all_facilities_objects)
 
 
 
@@ -79,6 +91,7 @@ class DefaultContactTracing:
         pass
     def __str__(self):
         return "Default Contact Tracing: no action"
+
 
 class ContactTracing:
     """

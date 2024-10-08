@@ -98,11 +98,8 @@ class MegaAgent:
         self.MegaAgentType = self.MegaAgentName[1]
 
         self.Residents = set(resident for resident in residents)
-        self.UrbanoAgents = whole_simulation_period_bi.mega_agent_Urbano_mapping[(self.BlockID, self.MegaAgentType)]
-
         self.MegaAgentPopulation = len(self.Residents)
-        self.SimulationPeriodBasicInfo = whole_simulation_period_bi
-        self.FacilityStationaryDistribution = self.SimulationPeriodBasicInfo.StationaryDistributions[self.MegaAgentName]
+        self.FacilityStationaryDistribution = whole_simulation_period_bi.StationaryDistributions[self.MegaAgentName]
 
         # One MegaAgent contains state info for the sake of transimission dynamics
         self.MegaAgentState = State()
@@ -111,7 +108,6 @@ class MegaAgent:
         self.MegaAgentState.S_set = set([traveler for traveler in self.Residents])
         self.Risk = 0
         self.if_initialized = False
-        self.contact_trace_roster = defaultdict(set)
         # used to calculate R_eff
         self.new_Ia_count = 0
         self.new_Is_count = 0
@@ -122,7 +118,32 @@ class MegaAgent:
         self.MegaAgentState.S_set = set([traveler for traveler in self.Residents])
         self.dynamic_time_spent_dic = dict()
         self.if_initialized = False  
-        self.contact_trace_roster = defaultdict(set)
+        self.new_Ia_count = 0
+        self.new_Is_count = 0
+
+
+    def record_daily_stat(self,
+                          date: datetime,
+                          stat) -> None:
+        # to record the epi-progression
+        stat.MegaAgents_Sn[self.MegaAgentName][date].append(len(self.MegaAgentState.S_set) + len(self.MegaAgentState.Q_dict))
+        stat.MegaAgents_En[self.MegaAgentName][date].append(len(self.MegaAgentState.E_dict))
+        stat.MegaAgents_In[self.MegaAgentName][date].append(len(self.MegaAgentState.Ia_dict) + len(self.MegaAgentState.Is_dict))
+        stat.MegaAgents_Rn[self.MegaAgentName][date].append(len(self.MegaAgentState.R_dict))
+        stat.MegaAgents_Qn[self.MegaAgentName][date].append(len(self.MegaAgentState.Q_dict) + len(self.MegaAgentState.Qe_dict) + len(self.MegaAgentState.Qs_dict) + len(self.MegaAgentState.Qa_dict))
+        
+        # to record data for later calculation of effective reproduction number
+        R_eff_dict = dict()
+        R_eff_dict["new infectious count"] = dict()
+        R_eff_dict["new infectious count"]["Ia count"] = self.new_Ia_count
+        R_eff_dict["new infectious count"]["Is count"] = self.new_Is_count
+
+        R_eff_dict["infectious count"] = {}
+        R_eff_dict["infectious count"]["Ia count"] = len(self.MegaAgentState.Ia_dict)
+        R_eff_dict["infectious count"]["Is count"] = len(self.MegaAgentState.Is_dict)
+        stat.R_effs[self.MegaAgentName][date].append(R_eff_dict)
+                
+        # reset the value at the end of each day
         self.new_Ia_count = 0
         self.new_Is_count = 0
 
@@ -175,15 +196,15 @@ class MegaAgent:
 
     @staticmethod
     def calculate_susceptible_travelers_risks(MegaAgentName: tuple,
-                                             date:datetime,
-                                             current_time_step: int,
-                                             all_facilities_objects: dict,
-                                             UrbanoAgents: set,
-                                             SimulationPeriodBasicInfo,
-                                             dynamic_time_spent_dic,
-                                             S_set: set) -> dict:
+                                              date:datetime,
+                                              current_time_step: int,
+                                              all_facilities_objects: dict,
+                                              SimulationPeriodBasicInfo,
+                                              dynamic_time_spent_dic,
+                                              S_set: set) -> dict:
         s_traveler_risk_dict = dict()
         s_traveler_visit_facilities = dict()
+        UrbanoAgents = SimulationPeriodBasicInfo.mega_agent_Urbano_mapping[(MegaAgentName[0], MegaAgentName[1])]
         for urbano_agent in UrbanoAgents:
             s_travelers = S_set & SimulationPeriodBasicInfo.urbano_agents_travelers_mapping[urbano_agent]
             if len(s_travelers)==0:
@@ -299,8 +320,8 @@ class MegaAgent:
     def labelTravelsAsExposed(MegaAgentName: tuple,
                               date:datetime,
                               current_time_step: int,
+                              parameters,
                               all_facilities_objects: dict,
-                              UrbanoAgents: set,
                               whole_simulation_period_bi,
                               dynamic_time_spent_dic: dict,
                               S_set: set,
@@ -319,7 +340,7 @@ class MegaAgent:
         else:
             # used to decide how many travelers are exposed and removed from S.
             Risk = MegaAgent.calculate_MegaAgent_risk(MegaAgentName, date, current_time_step, all_facilities_objects, whole_simulation_period_bi)
-            s_traveler_risk_dict = MegaAgent.calculate_susceptible_travelers_risks(MegaAgentName, date, current_time_step, all_facilities_objects, UrbanoAgents,
+            s_traveler_risk_dict = MegaAgent.calculate_susceptible_travelers_risks(MegaAgentName, date, current_time_step, all_facilities_objects,
                                                                                    whole_simulation_period_bi, dynamic_time_spent_dic, S_set)
             Risk = 1 - math.exp(-Risk)
             delta_S = len(S_set) * Risk
@@ -332,7 +353,7 @@ class MegaAgent:
                 to_infect.update(S_set)
             else:
                 to_infect = MegaAgent.selectSusceptibleBasedOnTravelerRisk(S_set, delta_S, s_traveler_risk_dict)
-
+        
         random_nums = set(np.random.uniform(0, 1, size=len(to_infect)))
         for traveler, if_infectious in zip(to_infect, random_nums):
             # # if a traveler is not vacinated or is vacinated but useless,
@@ -354,8 +375,26 @@ class MegaAgent:
                             continue
                         else:
                             all_facilities_objects[f_name].Date_TimeStep_Susceptibles[d][visit_time_step].remove(traveler)
-
                 E_dict[traveler] = date
+        
+        # This covers spontaneous infections.
+        spontaneous = np.random.poisson(parameters.infection_duration.daily_spontaneous_prob * len(S_set))
+        if spontaneous:
+            to_infect = set(np.random.choice(list(S_set), replace = True, size = spontaneous))
+            random_nums = set(np.random.uniform(0, 1, size=len(to_infect)))
+            for traveler, if_infectious in zip(to_infect, random_nums):
+                if traveler not in V_dict:
+                    S_set.remove(traveler)
+
+                    current_date_index = whole_simulation_period_bi.Dates.index(date)
+                    urbano_agent = whole_simulation_period_bi.traveler_urbano_agent_mapping[traveler]
+                    for d in whole_simulation_period_bi.Dates[current_date_index:]:
+                        for (f_name, visit_time_step) in whole_simulation_period_bi.urbano_agent_date_time_step_facility_dic[urbano_agent][d]:
+                            if d is date and visit_time_step < current_time_step:
+                                continue
+                            else:
+                                all_facilities_objects[f_name].Date_TimeStep_Susceptibles[d][visit_time_step].remove(traveler)
+                    E_dict[traveler] = date
 
 
     @staticmethod
@@ -461,19 +500,17 @@ class MegaAgent:
     def conduct_testing(date: datetime, 
                         probs_to_be_tested: dict,
                         test_accuracy_rate: float, 
-                        prob_of_self_report: float,
+                        prob_of_self_quarantined: float,
                         S_set: set,
                         E_dict: dict,
                         Is_dict: dict,
                         Ia_dict: dict,
                         R_dict: dict) -> dict:
         """
-        Put certain amount of travelers into contact tracing roster. For each traveler,
-        if he is willing to be tested, and if the test result is positive (no matter whether 
-        accurate or not), and if he is willing to self report the result, then he will be in contact
-        tracing roster. Every "if" is controlled by a probability parameter.
+        For each traveler, if he is willing to be tested, and if the test result is positive (no matter whether 
+        accurate or not), then he will choose if self quarantine. Every "if" is controlled by a probability parameter.
         """
-        contact_tracing_roster = {date: set()}
+        self_quarantined_dict = {date: set()}
         # use binomial distribution sampling to get the testing group
         testing_group_E_Is_Ia = set()
         testing_group_S_R = set()
@@ -493,29 +530,29 @@ class MegaAgent:
             sampling_result = np.random.binomial(n=1, p=probs_to_be_tested["R"], size=len(R_dict))
             testing_group_S_R.update(traveler for if_test, traveler in zip(sampling_result, R_dict) if if_test==1)
 
-        self_report_group = set()
+        self_quarantined_group = set()
         if len(testing_group_E_Is_Ia) != 0:
             # in testing group of E/Ia/Is, get the accurate testing group
-            sampling_result = np.random.binomial(n=1, p=test_accuracy_rate, size=len(testing_group_E_Is_Ia))
-            accu_testing_group_E_Is_Ia = set(traveler for if_test, traveler in zip(sampling_result, testing_group_E_Is_Ia) if if_test==1)
+            accu_result = np.random.binomial(n=1, p=test_accuracy_rate, size=len(testing_group_E_Is_Ia))
+            accu_testing_group_E_Is_Ia = set(traveler for if_accu, traveler in zip(accu_result, testing_group_E_Is_Ia) if if_accu==1)
             if len(accu_testing_group_E_Is_Ia) != 0:
-                # get the self report group
-                sampling_result = np.random.binomial(n=1, p=prob_of_self_report, size=len(accu_testing_group_E_Is_Ia))
-                self_report_group.update(traveler for if_test, traveler in zip(sampling_result, accu_testing_group_E_Is_Ia) if if_test==1)
+                # get the self quarantined group
+                quarantine_result = np.random.binomial(n=1, p=prob_of_self_quarantined, size=len(accu_testing_group_E_Is_Ia))
+                self_quarantined_group.update(traveler for if_quarantine, traveler in zip(quarantine_result, accu_testing_group_E_Is_Ia) if if_quarantine==1)
 
         if len(testing_group_S_R) != 0:
             # in testing group of S/R, get the false testing group
-            sampling_result = np.random.binomial(n=1, p=1-test_accuracy_rate, size=len(testing_group_S_R))
-            accu_testing_group_S_R = set(traveler for if_test, traveler in zip(sampling_result, testing_group_S_R) if if_test==1)
+            accu_result = np.random.binomial(n=1, p=1-test_accuracy_rate, size=len(testing_group_S_R))
+            accu_testing_group_S_R = set(traveler for if_accu, traveler in zip(accu_result, testing_group_S_R) if if_accu==1)
             if len(accu_testing_group_S_R) != 0:
-                # get the self report group
-                sampling_result = np.random.binomial(n=1, p=prob_of_self_report, size=len(accu_testing_group_S_R))
-                self_report_group.update(traveler for if_test, traveler in zip(sampling_result, accu_testing_group_S_R) if if_test==1)
+                # get the self quarantined group
+                sampling_result = np.random.binomial(n=1, p=prob_of_self_quarantined, size=len(accu_testing_group_S_R))
+                self_quarantined_group.update(traveler for if_test, traveler in zip(sampling_result, accu_testing_group_S_R) if if_test==1)
 
-        # add the traveler to the contact_tracing_roster
-        for traveler in self_report_group:
-            contact_tracing_roster[date].add(traveler)
-        return contact_tracing_roster
+        # add the traveler to the self_quarantined_group
+        for traveler in self_quarantined_group:
+            self_quarantined_dict[date].add(traveler)
+        return self_quarantined_dict
 
 
     @staticmethod
@@ -538,7 +575,7 @@ class MegaAgent:
         Transfer traveler from S, E, I to Q or Qe or Qs or Qa.
         """
         quarantine_end_date = quaranting_start_date + timedelta(days = quarantine_length)
-
+        #print(traveler)
         if traveler in Is_dict:
             Qs_dict[traveler] = quarantine_end_date
             del Is_dict[traveler]
@@ -546,11 +583,10 @@ class MegaAgent:
         elif traveler in Ia_dict:
             Qa_dict[traveler] = quarantine_end_date
             del Ia_dict[traveler]
-            Ia_dict.remove(traveler)
             Ia_set.remove(traveler)
         elif traveler in E_dict:
             Qe_dict[traveler] = quarantine_end_date
-            E_dict.remove(traveler)
+            del E_dict[traveler]
         elif traveler in S_set:
             S_set.remove(traveler)
             Q_dict[traveler] = quarantine_end_date
@@ -564,6 +600,7 @@ class MegaAgent:
                 for (f_name, visit_time_step) in SimulationPeriodBasicInfo.urbano_agent_date_time_step_facility_dic[urbano_agent][q_date]:
                     all_facilities_objects[f_name].Date_TimeStep_Susceptibles[q_date][visit_time_step].remove(traveler)
                     all_facilities_objects[f_name].DateTimeStepAllVisitors[q_date][visit_time_step].remove(traveler)
+        
 
 
     @staticmethod
@@ -679,29 +716,3 @@ class MegaAgent:
         MegaAgent.pool_recover(Qa_dict, R_dict, date)
         MegaAgent.pool_recover(Qs_dict, R_dict, date)
         MegaAgent.bring_quarantined_S_to_S(date, S_set, Q_dict)
-
-
-    def record_daily_stat(self,
-                          date: datetime,
-                          stat) -> None:
-        # to record the epi-progression
-        stat.MegaAgents_Sn[self.MegaAgentName][date].append(len(self.MegaAgentState.S_set) + len(self.MegaAgentState.Q_dict))
-        stat.MegaAgents_En[self.MegaAgentName][date].append(len(self.MegaAgentState.E_dict))
-        stat.MegaAgents_In[self.MegaAgentName][date].append(len(self.MegaAgentState.Ia_dict) + len(self.MegaAgentState.Is_dict))
-        stat.MegaAgents_Rn[self.MegaAgentName][date].append(len(self.MegaAgentState.R_dict))
-        stat.MegaAgents_Qn[self.MegaAgentName][date].append(len(self.MegaAgentState.Q_dict) + len(self.MegaAgentState.Qe_dict) + len(self.MegaAgentState.Qs_dict) + len(self.MegaAgentState.Qa_dict))
-        
-        # to record data for later calculation of effective reproduction number
-        R_eff_dict = dict()
-        R_eff_dict["new infectious count"] = dict()
-        R_eff_dict["new infectious count"]["Ia count"] = self.new_Ia_count
-        R_eff_dict["new infectious count"]["Is count"] = self.new_Is_count
-
-        R_eff_dict["infectious count"] = {}
-        R_eff_dict["infectious count"]["Ia count"] = len(self.MegaAgentState.Ia_dict)
-        R_eff_dict["infectious count"]["Is count"] = len(self.MegaAgentState.Is_dict)
-        stat.R_effs[self.MegaAgentName][date].append(R_eff_dict)
-                
-        # reset the value at the end of each day
-        self.new_Ia_count = 0
-        self.new_Is_count = 0

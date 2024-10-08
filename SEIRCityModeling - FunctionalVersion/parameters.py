@@ -20,17 +20,11 @@ class Parameters:
         
         self.probs_to_be_tested = 0.75
         self.test_accuracy_rate = 0.9
-        self.prob_of_self_report = 0.6
         self.quarantine_prob = 0.5
         self.conduct_testing = DefaultTesting(self.probs_to_be_tested, 
                                               self.test_accuracy_rate, 
-                                              self.prob_of_self_report)
-
-        self.contact_trace_date_length = 3
-        self.contact_tracing = DefaultContactTracing(self.contact_trace_date_length, 
-                                                     self.quarantine_length,
-                                                     self.quarantine_prob)
-
+                                              self.quarantine_prob,
+                                              self.quarantine_length)
 
     def info(self):
         for x in self.__dir__():
@@ -60,9 +54,10 @@ class VariedInfectionDurationResponse:
                  rate_from_symI_to_R: float=1/2, 
                  asym_fraction: float=0.75, 
                  asym_hazard_multiplier: float=0.5,
-                 std_from_E_to_I=0.72,
-                 std_from_Is_to_R=2.0,
-                 std_from_Ia_to_R=2.0):
+                 daily_spontaneous_prob: float=0.001,
+                 std_from_E_to_I: float=0.72,
+                 std_from_Is_to_R: float=2.0,
+                 std_from_Ia_to_R: float=2.0):
         self.rate_from_S_to_E = rate_from_S_to_E
         self.rate_from_E_to_I = rate_from_E_to_I
         self.rate_from_asymI_to_R = rate_from_asymI_to_R
@@ -70,6 +65,7 @@ class VariedInfectionDurationResponse:
         self.asym_fraction = asym_fraction
         self.asym_hazard_multiplier = asym_hazard_multiplier
 
+        self.daily_spontaneous_prob = daily_spontaneous_prob
         self.std_from_E_to_I = std_from_E_to_I
         self.std_from_Is_to_R = std_from_Is_to_R
         self.std_from_Ia_to_R = std_from_Ia_to_R
@@ -83,8 +79,8 @@ class VariedInfectionDurationResponse:
             else:
                 return num
         return ''.join(['VariedResponse(rate from S to E: ', nice_look(self.rate_from_S_to_E),
-                                     ', rate from E to I: ', nice_look(self.rate_from_E_to_I),
-                                     ', rate from asymtomatic I to R: ', nice_look(self.rate_from_asymI_to_R),
-                                       ', rate from symtomatic I to R: ', nice_look(self.rate_from_symI_to_R),
-                                     ', asymptomatic fraction: ', nice_look(self.asym_fraction), 
-                                     ', asymptomatic hazard multiplier: ', nice_look(self.asym_hazard_multiplier), ')'])
+                        ', rate from E to I: ', nice_look(self.rate_from_E_to_I),
+                        ', rate from asymtomatic I to R: ', nice_look(self.rate_from_asymI_to_R),
+                        ', rate from symtomatic I to R: ', nice_look(self.rate_from_symI_to_R),
+                        ', asymptomatic fraction: ', nice_look(self.asym_fraction), 
+                        ', asymptomatic hazard multiplier: ', nice_look(self.asym_hazard_multiplier), ')'])
