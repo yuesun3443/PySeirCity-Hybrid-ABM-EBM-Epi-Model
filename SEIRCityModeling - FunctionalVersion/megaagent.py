@@ -277,44 +277,6 @@ class MegaAgent:
         return sampled_travelers
 
 
-    @staticmethod
-    def selectTravelersBasedOnDayLength(date: datetime, 
-                                        transition_rate: float,
-                                        days_std: float,
-                                        num_of_travelers_to_transfer: int,
-                                        traveler_list: List[tuple],
-                                        distribution_type="weibull"):
-        day_diffs = list()
-        traveler_ids_list = list()
-        traveler_date_dict = dict()
-        for (traveler, first_transferred_date) in traveler_list:
-            day_diff = (date-first_transferred_date).days
-            day_diffs.append(day_diff)
-            traveler_ids_list.append(traveler)
-            traveler_date_dict[traveler]=first_transferred_date
-
-        mean_day_until_transition = 1.0/transition_rate
-        std_day_until_transition = days_std
-        
-        # sampling_weights = list()
-        # if distribution_type=="weibull":
-        #     wbd = Weibull(mean_day_until_transition, std_day_until_transition)
-        #     sampling_weights = wbd.get_normalized_weibull_probs(day_diffs)
-        # elif distribution_type=="lognormal":
-        #     lgn = LogNormal(mean_day_until_transition, std_day_until_transition)
-        #     sampling_weights = lgn.get_normalized_lognormal_probs(day_diffs)
-        # else: 
-        #     raise RuntimeError("distribution type must be either weibull or lognormal.")
-
-        sampling_weights = [1/len(traveler_ids_list) for _ in range(len(traveler_ids_list))]
-        sampled_traveler_ids = set(np.random.choice(traveler_ids_list, size=num_of_travelers_to_transfer, replace=False, p=sampling_weights))
-        sampled_travelers = [(traveler_id, date) for traveler_id in sampled_traveler_ids]
-
-        for traveler_id in sampled_traveler_ids:
-            del traveler_date_dict[traveler_id]
-        traveler_list = [(traveler_id, date) for traveler_id, date in traveler_date_dict.items()]
-        return traveler_list, sampled_travelers
-
 
     @staticmethod
     def labelTravelsAsExposed(MegaAgentName: tuple,
